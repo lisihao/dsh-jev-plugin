@@ -24,7 +24,14 @@ import * as ToolWorkingDirectory from '@deepseek-ai/dsh-tool-working-directory'
 import JevService from '../src/index.ts'
 import * as instructions from '../src/instructions.ts'
 
-interface Wire { state: { sources: { id: string; text: string; origin: string }[]; operation: { name: string; arguments: string; cwd: string } }; questions: Record<string, object> }
+interface Wire {
+  state: {
+    instruction: string
+    sources: { id: string; text: string; origin: string }[]
+    operation: { name: string; arguments: string; cwd: string; effect: 'read' | 'may-modify' | 'unknown' }
+  }
+  questions: Record<string, object>
+}
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const fn of cleanups.splice(0).reverse()) await fn() })
 const user = (text: string) => createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
@@ -61,9 +68,10 @@ async function fixture(ptc = false, sessionDirectory = '', nativeFs = false,
     await held
     const answers = Object.fromEntries(Object.keys(body.questions).map(id => {
       const source = body.state.sources.find(source => source.id === id)
-      const writes = body.state.operation.name === 'write'
+      const effect = body.state.operation.effect
       const text = source?.text ?? ''
-      const conflict = writes && text.includes('Write only in isolated workspace') && !body.state.operation.arguments.includes('plan.md')
+      const conflict = effect === 'may-modify' && ((text.includes('Write only in isolated workspace') && !body.state.operation.arguments.includes('plan.md')) || text.includes('Do not edit'))
+        || effect === 'read' && (text.includes('Do not read') || text.includes('Do not access'))
       return [id, { choice: override ?? (id === 'no-requirements' ? 'not-applicable' : conflict ? 'conflict' : 'no-conflict') }]
     }))
     response.writeHead(status, { 'content-type': 'application/json' })
@@ -113,6 +121,20 @@ async function fixture(ptc = false, sessionDirectory = '', nativeFs = false,
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       execute: (args, exec) => readFile(resolve(exec.agent?.session.header.cwd ?? process.cwd(), args.file_path), 'utf8'),
     }))
+    ctx.tools.register(defineTool({ name: 'edit', description: 'Fixture file edit through the original tools pipeline',
+      parameters: { file_path: { type: 'string', required: true }, content: { type: 'string', required: true } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      async execute(args, exec) { await writeFile(resolve(exec.agent?.session.header.cwd ?? process.cwd(), args.file_path), args.content); return 'edited' },
+    }))
+    ctx.tools.register(defineTool({ name: 'bash', description: 'Fixture shell command through the original tools pipeline',
+      parameters: { command: { type: 'string', required: true } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => 'completed without interpreting the command',
+    }))
+    ctx.tools.register(defineTool({ name: 'constructor', description: 'Fixture inherited-name tool through the original tools pipeline',
+      parameters: {}, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => 'completed',
+    }))
   }
   const session = ctx.sessions.create(SessionId('instructions-' + root), { meta: directory.sessionCwd === false ? {} : { cwd } })
   session.append('user/message', user(directory.requestText ?? 'Update this project.'), { surfaceOp: 'append' })
@@ -124,13 +146,13 @@ async function fixture(ptc = false, sessionDirectory = '', nativeFs = false,
   ctx.on('user-questions/request', ask)
   let calls = 0
   const invoke = (path = 'product.txt', tool = 'write') => ctx.agents.withInitiator(agent, () => ctx.tools.execute({
-    name: ptc ? 'run_code' : tool, arguments: ptc ? { description: 'Write fixture', code: 'await tools.write({file_path:"product.txt",content:"ptc wrote"})' } : tool === 'read' ? { file_path: path } : { file_path: path, content: 'written' },
+    name: ptc ? 'run_code' : tool, arguments: ptc ? { description: 'Write fixture', code: 'await tools.write({file_path:"product.txt",content:"ptc wrote"})' } : tool === 'read' ? { file_path: path } : tool === 'bash' ? { command: 'cat ' + path } : tool === 'constructor' ? {} : { file_path: path, content: 'written' },
     agent, signal: new AbortController().signal, callId: ToolCallId('instruction-' + ++calls),
   }))
-  const step = async (messages: UserMessage[] = []) => {
+  const step = async (messages: UserMessage[] = [], admit = true) => {
     const decision = await agentEvents(ctx, agent).waterfall('agent/pre-step', { messages, turn: 1, step: 2, signal: new AbortController().signal },
       () => Promise.resolve({ kind: 'enter' as const, messages }))
-    if (decision.kind === 'enter') for (const message of decision.messages) session.append('user/message', message, { surfaceOp: 'append' })
+    if (admit && decision.kind === 'enter') for (const message of decision.messages) session.append('user/message', message, { surfaceOp: 'append' })
     return decision.kind === 'enter' ? decision.messages.filter(message => message.source.kind === 'jev-instruction-guidance') : []
   }
   const settled = async (count = calls) => {
@@ -167,6 +189,45 @@ describe('instruction guidance with original Native/PTC pipeline and localhost J
     expect(await f.step()).toHaveLength(0)
     expect(f.writes()).toBe(1)
     expect(f.ask).not.toHaveBeenCalled()
+  })
+
+  it('marks native reads as read-only without suppressing an explicit read ban', async () => {
+    const f = await fixture()
+    await mkdir(join(f.root, 'protected'))
+    await writeFile(join(f.root, 'protected/policy.json'), '{}')
+    await f.rule('Do not edit protected/policy.json or the tests.')
+    expect((await f.invoke('protected/policy.json', 'read')).isError).toBe(false)
+    await f.settled()
+    const first = f.requests[0]!
+    expect(first.state.operation).toMatchObject({ name: 'read', effect: 'read' })
+    expect(first.state.instruction).toContain('does not prohibit this read by itself')
+    const editSource = first.state.sources.find(source => source.text.includes('Do not edit protected/policy.json'))!
+    expect(JSON.stringify(first.questions[editSource.id])).toContain('does not prohibit this read by itself')
+    expect(await f.step()).toHaveLength(0)
+
+    await f.rule('Do not read protected/policy.json.')
+    expect((await f.invoke('protected/policy.json', 'read')).isError).toBe(false)
+    await f.settled(2)
+    expect(f.requests[1]!.state.operation).toMatchObject({ name: 'read', effect: 'read' })
+    expect(await f.step()).toHaveLength(1)
+  })
+
+  it('marks native write and edit as may-modify while shell and run_code remain unknown', async () => {
+    const f = await fixture()
+    expect((await f.invoke('product.txt', 'write')).isError).toBe(false)
+    await f.settled(1)
+    expect((await f.invoke('product.txt', 'edit')).isError).toBe(false)
+    await f.settled(2)
+    expect((await f.invoke('product.txt', 'bash')).isError).toBe(false)
+    await f.settled(3)
+    expect((await f.invoke('product.txt', 'constructor')).isError).toBe(false)
+    await f.settled(4)
+    expect(f.requests.map(request => request.state.operation.effect)).toEqual(['may-modify', 'may-modify', 'unknown', 'unknown'])
+
+    const ptc = await fixture(true)
+    expect((await ptc.invoke()).isError).toBe(false)
+    await ptc.settled(2)
+    expect(ptc.requests.find(request => request.state.operation.name === 'run_code')?.state.operation.effect).toBe('unknown')
   })
 
   it('reads operation paths and rules from each legacy Session without a directory service', async () => {
@@ -259,14 +320,68 @@ describe('instruction guidance with original Native/PTC pipeline and localhost J
     release(); await f.settled()
     const reminders = await f.step()
     expect(reminders).toHaveLength(1)
-    expect(receipts).not.toHaveBeenCalled()
-    const record = await f.ctx.jev.getRecord((await f.ctx.jev.listRecords({})).items[0]!.id)
-    expect(record?.receipts).toEqual([])
+    const delivered = () => receipts.mock.calls.filter(([, receipt]) => receipt.id === 'instruction-guidance-delivered')
+    await vi.waitFor(() => expect(delivered()).toHaveLength(1))
+    await vi.waitFor(async () => {
+      const record = await f.ctx.jev.getRecord((await f.ctx.jev.listRecords({})).items[0]!.id)
+      expect(record?.receipts).toEqual([expect.objectContaining({ id: 'instruction-guidance-delivered', status: 'executed' })])
+    })
     expect(JSON.stringify(reminders)).toContain('TEAM.md')
     expect(JSON.stringify(reminders)).toContain('Write only in isolated workspace')
     expect(f.session.deriveMessages().some(message => message.role === 'user' && message.source.kind === 'jev-instruction-guidance')).toBe(true)
     await f.invoke(); await f.settled(); expect(await f.step()).toHaveLength(0)
     expect(f.writes()).toBe(2); expect(f.ask).not.toHaveBeenCalled()
+  })
+  it('does not claim a delivery receipt for a reminder constructed but not admitted', async () => {
+    const f = await fixture()
+    const receipts = vi.spyOn(f.ctx.jev, 'writeReceipt')
+    await f.rule('Write only in isolated workspace.')
+    expect((await f.invoke()).isError).toBe(false)
+    await f.settled()
+    expect(await f.step([], false)).toHaveLength(1)
+    await flush()
+    expect(receipts).not.toHaveBeenCalled()
+    expect(f.session.deriveMessages().some(message => message.role === 'user' && message.source.kind === 'jev-instruction-guidance')).toBe(false)
+  })
+  it('records one delivery receipt only after Session admission and ignores a duplicate event', async () => {
+    const f = await fixture()
+    const receipts = vi.spyOn(f.ctx.jev, 'writeReceipt')
+    await f.rule('Write only in isolated workspace.')
+    expect((await f.invoke()).isError).toBe(false)
+    await f.settled()
+    expect(await f.step()).toHaveLength(1)
+    const delivered = () => receipts.mock.calls.filter(([, receipt]) => receipt.id === 'instruction-guidance-delivered')
+    await vi.waitFor(() => expect(delivered()).toHaveLength(1))
+    const notice = f.session.deriveMessages().findLast(message => message.role === 'user' && message.source.kind === 'jev-instruction-guidance')!
+    if (notice.role !== 'user' || notice.source.kind !== 'jev-instruction-guidance') throw new Error('Missing admitted instruction guidance')
+    const event = f.session.snapshotEvents().findLast(item => item.type === 'user/message' && item.data.id === notice.id)!
+    const receipt = delivered()[0]![1]
+    expect(receipt).toMatchObject({ id: 'instruction-guidance-delivered', status: 'executed' })
+    expect(JSON.parse(receipt.reason!)).toMatchObject({ messageId: notice.id, sessionId: f.session.id, sourceRequestId: notice.source.requestId })
+    f.ctx.emit('session/event', f.session, event)
+    await flush()
+    expect(delivered()).toHaveLength(1)
+  })
+  it('keeps an admitted notice when its delivery receipt fails and does not retry it', async () => {
+    const f = await fixture()
+    const writeReceipt = f.ctx.jev.writeReceipt.bind(f.ctx.jev)
+    const receipts = vi.spyOn(f.ctx.jev, 'writeReceipt').mockImplementation((operationId, receipt) => receipt.id === 'instruction-guidance-delivered'
+      ? Promise.reject(new Error('fixture receipt persistence failed')) : writeReceipt(operationId, receipt))
+    const warning = vi.spyOn(f.ctx.logger, 'warn')
+    await f.rule('Write only in isolated workspace.')
+    expect((await f.invoke()).isError).toBe(false)
+    await f.settled()
+    expect(await f.step()).toHaveLength(1)
+    const delivered = () => receipts.mock.calls.filter(([, receipt]) => receipt.id === 'instruction-guidance-delivered')
+    await vi.waitFor(() => expect(warning).toHaveBeenCalledWith(expect.stringContaining('receipt remains unconfirmed')))
+    expect(delivered()).toHaveLength(1)
+    const notice = f.session.deriveMessages().findLast(message => message.role === 'user' && message.source.kind === 'jev-instruction-guidance')!
+    if (notice.role !== 'user' || notice.source.kind !== 'jev-instruction-guidance') throw new Error('Missing admitted instruction guidance')
+    const event = f.session.snapshotEvents().findLast(item => item.type === 'user/message' && item.data.id === notice.id)!
+    f.ctx.emit('session/event', f.session, event)
+    await flush()
+    expect(delivered()).toHaveLength(1)
+    expect(f.session.deriveMessages().some(message => message.id === notice.id)).toBe(true)
   })
   it('adopts an issued slow judgment after disabling while new calls send no requests', async () => {
     const f = await fixture(); await f.rule('Write only in isolated workspace.')
@@ -431,6 +546,7 @@ describe('instruction guidance with original Native/PTC pipeline and localhost J
   })
   it('delivers once into a real AgentLoop model request without inventing a follow-up turn', async () => {
     const f = await fixture(); await f.rule('Write only in isolated workspace.')
+    const receipts = vi.spyOn(f.ctx.jev, 'writeReceipt')
     await f.ctx.plugin(AgentLoop, { agents: [] })
     const seen: GenerateOptions[] = []
     class MainModel extends LlmAdapter {
@@ -460,6 +576,9 @@ describe('instruction guidance with original Native/PTC pipeline and localhost J
     expect(seen).toHaveLength(3)
     expect(JSON.stringify(seen[2]!.messages)).toContain('Jev 用户约束提醒')
     expect(agent.session.deriveMessages().filter(message => message.role === 'user' && message.source.kind === 'jev-instruction-guidance')).toHaveLength(1)
+    const delivered = () => receipts.mock.calls.filter(([, receipt]) => receipt.id === 'instruction-guidance-delivered')
+    await vi.waitFor(() => expect(delivered()).toHaveLength(1))
+    expect(delivered()[0]![1]).toMatchObject({ id: 'instruction-guidance-delivered', status: 'executed' })
     expect(f.writes()).toBe(2)
     expect(f.ask).not.toHaveBeenCalled()
     expect(agent.status).toBe('idle')

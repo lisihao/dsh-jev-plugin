@@ -15,6 +15,7 @@ declare module '@deepseek-ai/dsh-llm' {
             summary: string;
             requestId: string;
             originalIds: string[];
+            operationId?: string;
         };
     }
 }

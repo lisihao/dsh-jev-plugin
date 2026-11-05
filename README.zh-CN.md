@@ -188,6 +188,7 @@ dsh --profile jev
 ## 行为与限制
 
 - **提醒是建议。** 跑偏和约束提醒不会阻塞、取消工具，也不会强制主模型遵守。即使只有一个引用或没有文字要求，证据选择题也至少保留两个选项；不确定选项不能作为纠正提醒的依据。
+- **约束提醒区分操作效果。** 已知原生 `read`、`glob`、`grep` 提供只读操作证据；原生 `write`、`edit` 提供可能修改的证据。Shell、PTC 和未知工具的效果仍为未知。“禁止修改”不禁止检查；明确禁止读取或访问的要求仍然适用。这些事实只辅助判断，不授予权限。提醒真正以 `user/message` 进入 Session 后，才写入 `instruction-guidance-delivered` 回执；准备提醒不等于送达，送达也不证明遵守了要求。缺少操作标识的旧提醒仍可读取。回执写入失败会记录日志，不会重发提醒。
 - **完成核查的固定16槽诊断。** 初始错误由脚本种入，开启组的6/6个错误案例经真实Jev判断和DeepSeek补做满足核心要求；2/2个准确对照判为完成，均无补做。见[新诊断结果](docs/testing/2026-10-05-completion-recovery/public-results.zh-CN.md)。这些试次使用此前的已有证据核查语义，不能证明轻量报告核查的真实任务效果，也不能推出自然任务错误率或编码平均收益。历史长编码试次因默认证据预算裁掉原始要求，判断零采用、零自动补做，最终转入人工Retry/Cancel，见[旧报告](docs/testing/2026-10-02-completion-skill/README.md)。
 - **审批只针对一次操作。** 不改变会话沙箱模式，不覆盖宿主固定检查。有效 approve 可返回 allowed-once，unauthorized 或 unknown 回原人工审批；技术故障保留人工 Retry/Cancel。
 - **共享纠正有明确范围。** 它只处理已经共享的报告和消息，不读取所有 Agent 的内部探索；自动投递限当前存活的主 Agent 及其活跃、可继续的直接子 Agent。同一发现以不同形式上报时，仍可能产生重复纠正。
@@ -197,6 +198,8 @@ dsh --profile jev
 - **Luna 任务结果保留未达预期与限制。** 前两个受控审批样例返回 `unauthorized`；后来的真实任务得到 `approve` 并执行一次原生 `allowed-once` 写入。真实构建日志在原默认参数下由 8,407 缩至 2,122 码点（74.76%），五个同分文件概率则未改变排序。[双语 Luna 报告](docs/testing/2026-10-07-luna-decisions/README.md)同时记录这些结果、原文恢复和未验证功能。
 
 开启的功能会将相关任务上下文或操作内容发送到配置的判断服务。精确判断输入和回答保存在 profile 的本地插件记录中，主模型可见影响使用正常 DSH Session 记录。运行资料和凭据应保留为私有数据；公开源码历史不包含个人 QA 截图和原始会话抓取。
+
+See the [bounded rc.2 repair acceptance](docs/testing/2026-11-04-readonly-receipts/README.md) for the exact artifact hash, controlled cases, live request counts and limitations.
 
 ## 更新与移除
 
