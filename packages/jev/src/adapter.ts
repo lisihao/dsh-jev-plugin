@@ -16,6 +16,7 @@ interface PendingCall {
   canStart?: () => boolean
   records: JevNetworkRecord[]
   record?: (records: readonly JevNetworkRecord[]) => Promise<void>
+  prepared?: JevNetworkRecord
 }
 
 /** The adapter never advertises a chat model and rejects calls lacking a service-issued nonce. */
@@ -23,10 +24,11 @@ export class JevAdapter extends LlmAdapter {
   private readonly pending = new Map<string, PendingCall>()
 
   issue(request: JevRequest, connection: JevConnection, canStart?: () => boolean,
-    record?: (records: readonly JevNetworkRecord[]) => Promise<void>): { envelope: string; records: readonly JevNetworkRecord[]; release: () => void } {
+    record?: (records: readonly JevNetworkRecord[]) => Promise<void>, prepared?: JevNetworkRecord): { envelope: string; records: readonly JevNetworkRecord[]; release: () => void } {
     const nonce = randomUUID()
-    const records: JevNetworkRecord[] = []
-    this.pending.set(nonce, { request, connection, canStart, record, records })
+    const first = prepared === undefined ? undefined : structuredClone(prepared)
+    const records: JevNetworkRecord[] = first === undefined ? [] : [first]
+    this.pending.set(nonce, { request, connection, canStart, record, records, prepared: first })
     return {
       envelope: JSON.stringify({ version: 1, nonce, state: request.state, questions: request.questions }),
       records,
@@ -47,10 +49,12 @@ export class JevAdapter extends LlmAdapter {
       if (options.signal?.aborted) throw new LlmError('Decision request was cancelled or timed out', 'ABORTED')
       if (call.canStart?.() === false) throw new LlmError('Decision feature was disabled before dispatch', 'FEATURE_DISABLED')
       const part: JevRequest = { state: request.state, questions: request.questions.slice(offset, offset + limit) }
-      const exchange: JevNetworkRecord = { id: randomUUID(), questionIds: part.questions.map(question => question.id),
+      const exchange: JevNetworkRecord = (offset === 0 ? call.prepared : undefined) ?? { id: randomUUID(), questionIds: part.questions.map(question => question.id),
         requestBody: protocolBody(connection.connectionId, connection.model, part), startedAt: new Date().toISOString(), status: 'pending' }
-      call.records.push(exchange)
-      await this.save(call)
+      if (offset !== 0 || call.prepared === undefined) call.records.push(exchange)
+      // The service already durably stored a prepared first packet with startAttempt.
+      // Later packets (and standalone adapter users) retain their own input barrier.
+      if (offset !== 0 || call.prepared === undefined) await this.save(call)
       try {
         if (options.signal?.aborted) throw new LlmError('Decision request was cancelled or timed out', 'ABORTED')
         if (call.canStart?.() === false) throw new LlmError('Decision feature was disabled before dispatch', 'FEATURE_DISABLED')

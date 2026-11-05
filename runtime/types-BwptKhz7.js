@@ -358,15 +358,17 @@ const JEV_PROVIDER = "jev-system-one";
 /** The adapter never advertises a chat model and rejects calls lacking a service-issued nonce. */
 var JevAdapter = class extends LlmAdapter {
 	pending = /* @__PURE__ */ new Map();
-	issue(request, connection, canStart, record) {
+	issue(request, connection, canStart, record, prepared) {
 		const nonce = randomUUID();
-		const records = [];
+		const first = prepared === void 0 ? void 0 : structuredClone(prepared);
+		const records = first === void 0 ? [] : [first];
 		this.pending.set(nonce, {
 			request,
 			connection,
 			canStart,
 			record,
-			records
+			records,
+			prepared: first
 		});
 		return {
 			envelope: JSON.stringify({
@@ -394,15 +396,15 @@ var JevAdapter = class extends LlmAdapter {
 				state: request.state,
 				questions: request.questions.slice(offset, offset + limit)
 			};
-			const exchange = {
+			const exchange = (offset === 0 ? call.prepared : void 0) ?? {
 				id: randomUUID(),
 				questionIds: part.questions.map((question) => question.id),
 				requestBody: protocolBody(connection.connectionId, connection.model, part),
 				startedAt: (/* @__PURE__ */ new Date()).toISOString(),
 				status: "pending"
 			};
-			call.records.push(exchange);
-			await this.save(call);
+			if (offset !== 0 || call.prepared === void 0) call.records.push(exchange);
+			if (offset !== 0 || call.prepared === void 0) await this.save(call);
 			try {
 				if (options.signal?.aborted) throw new LlmError("Decision request was cancelled or timed out", "ABORTED");
 				if (call.canStart?.() === false) throw new LlmError("Decision feature was disabled before dispatch", "FEATURE_DISABLED");
@@ -857,12 +859,26 @@ var JevLedger = class JevLedger {
 		return this.domain.table("operations").get(id) ?? null;
 	}
 	async startAttempt(operationId, request, connection) {
+		const startedAt = (/* @__PURE__ */ new Date()).toISOString();
+		const connectionId = connection.connectionId ?? "jev";
+		const part = {
+			...request,
+			questions: request.questions.slice(0, connectionId === "luna-openrouter" ? 200 : request.questions.length)
+		};
+		const firstPacket = {
+			id: randomUUID(),
+			questionIds: part.questions.map((question) => question.id),
+			requestBody: protocolBody(connectionId, connection.model, part),
+			startedAt,
+			status: "pending"
+		};
 		const attempt = {
 			id: randomUUID(),
 			request,
 			connection,
 			status: "pending",
-			startedAt: (/* @__PURE__ */ new Date()).toISOString()
+			startedAt,
+			networkRecords: [firstPacket]
 		};
 		await this.domain.table("operations").update(operationId, (current) => ({
 			...current,
@@ -875,11 +891,12 @@ var JevLedger = class JevLedger {
 	}
 	/** Persist each network input before dispatch and each response before the next batch. */
 	async saveNetwork(operationId, attemptId, networkRecords) {
+		const snapshot = structuredClone(networkRecords);
 		await this.domain.table("operations").update(operationId, (current) => ({
 			...current,
 			attemptRecords: current.attemptRecords.map((attempt) => attempt.id === attemptId ? {
 				...attempt,
-				networkRecords
+				networkRecords: snapshot
 			} : attempt)
 		}));
 	}
@@ -1655,7 +1672,7 @@ let JevService = (() => {
 			});
 			let rawResponse;
 			let response;
-			let networkRecords = [];
+			let networkRecords = attempt.networkRecords ?? [];
 			let usage;
 			let usageComplete = false;
 			const timeout = AbortSignal.timeout(identity.timeoutMs);
@@ -1669,7 +1686,7 @@ let JevService = (() => {
 					...identity,
 					apiKey: key.value
 				};
-				const issued = this.adapter.issue(snapshot, connection, featureId === void 0 ? void 0 : () => this.isEnabled(featureId), (records) => this.records().saveNetwork(operationId, attempt.id, records));
+				const issued = this.adapter.issue(snapshot, connection, featureId === void 0 ? void 0 : () => this.isEnabled(featureId), (records) => this.records().saveNetwork(operationId, attempt.id, records), attempt.networkRecords?.[0]);
 				networkRecords = issued.records;
 				try {
 					let text;
@@ -1758,6 +1775,12 @@ let JevService = (() => {
 					code: "TIMEOUT",
 					message: "Jev request timed out"
 				} : safeFailure(error);
+				networkRecords = networkRecords.map((record) => record.dispatchedAt === void 0 && record.status === "pending" ? {
+					...record,
+					status: "failed",
+					settledAt: (/* @__PURE__ */ new Date()).toISOString(),
+					failure
+				} : record);
 				rawResponse = networkRecords.length === 1 ? networkRecords[0]?.rawResponse : void 0;
 				const expectedPackets = identity.connectionId === "luna-openrouter" ? Math.ceil(snapshot.questions.length / 200) : 1;
 				const receivedAll = networkRecords.length === expectedPackets && networkRecords.every((record) => record.dispatchedAt !== void 0 && record.rawResponseText !== void 0);

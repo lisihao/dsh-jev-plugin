@@ -477,7 +477,7 @@ export class JevService extends TypertRemoteService {
     }).catch(() => { throw new JevError('LOG_WRITE_FAILED', 'Jev input could not be saved; no request was sent') })
     let rawResponse: Json | undefined
     let response: JevResponse | undefined
-    let networkRecords: readonly JevNetworkRecord[] = []
+    let networkRecords: readonly JevNetworkRecord[] = attempt.networkRecords ?? []
     let usage: { inputTokens?: number; outputTokens?: number } | undefined
     let usageComplete = false
     const timeout = AbortSignal.timeout(identity.timeoutMs)
@@ -492,7 +492,7 @@ export class JevService extends TypertRemoteService {
       const connection: JevConnection = { ...identity, apiKey: key.value }
       const issued = this.adapter.issue(snapshot, connection,
         featureId === undefined ? undefined : () => this.isEnabled(featureId),
-        records => this.records().saveNetwork(operationId, attempt.id, records))
+        records => this.records().saveNetwork(operationId, attempt.id, records), attempt.networkRecords?.[0])
       networkRecords = issued.records
       try {
         let text: string | undefined
@@ -545,6 +545,8 @@ export class JevService extends TypertRemoteService {
       if (error instanceof JevError && error.code === 'LOG_WRITE_FAILED') throw error
       const failure = outerSignal?.aborted ? { code: 'CANCELLED', message: 'Jev operation was cancelled' }
         : timeout.aborted ? { code: 'TIMEOUT', message: 'Jev request timed out' } : safeFailure(error)
+      networkRecords = networkRecords.map(record => record.dispatchedAt === undefined && record.status === 'pending'
+        ? { ...record, status: 'failed', settledAt: new Date().toISOString(), failure } : record)
       rawResponse = networkRecords.length === 1 ? networkRecords[0]?.rawResponse : undefined
       const expectedPackets = identity.connectionId === 'luna-openrouter' ? Math.ceil(snapshot.questions.length / 200) : 1
       const receivedAll = networkRecords.length === expectedPackets

@@ -1,0 +1,417 @@
+{
+  "formatVersion": 1,
+  "synthetic": true,
+  "realModelCalls": 0,
+  "trials": [
+    {
+      "trial": 1,
+      "before": {
+        "formatVersion": 1,
+        "synthetic": true,
+        "realModelCalls": 0,
+        "node": "v22.23.2",
+        "runtimeEntrySha256": "9f39cd17d4f84688d51d568258ba15b0bf5f3fe72fae3595f28b3c1dc0f60112",
+        "reloadedRecordsVerified": 144,
+        "localRequests": 144,
+        "results": [
+          {
+            "concurrency": 1,
+            "operations": 48,
+            "elapsedMs": 2287.2871659999996,
+            "writes": 240,
+            "operationMs": {
+              "n": 48,
+              "p50": 48.8286250000001,
+              "p95": 55.084833,
+              "max": 56.887958000000026
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 27,
+              "p95": 31,
+              "max": 32
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 6,
+              "max": 9
+            },
+            "backendWriteMs": {
+              "n": 240,
+              "p50": 8.62479200000007,
+              "p95": 10.37662499999999,
+              "max": 13.173749999999984
+            }
+          },
+          {
+            "concurrency": 4,
+            "operations": 48,
+            "elapsedMs": 2182.147375,
+            "writes": 240,
+            "operationMs": {
+              "n": 48,
+              "p50": 170.2320420000001,
+              "p95": 192.77599999999984,
+              "max": 197.31354199999987
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 95,
+              "p95": 116,
+              "max": 121
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 2,
+              "p95": 4,
+              "max": 4
+            },
+            "backendWriteMs": {
+              "n": 240,
+              "p50": 8.965833000000202,
+              "p95": 10.942207999999937,
+              "max": 13.169374999999945
+            }
+          },
+          {
+            "concurrency": 16,
+            "operations": 48,
+            "elapsedMs": 2159.1587499999996,
+            "writes": 240,
+            "operationMs": {
+              "n": 48,
+              "p50": 654.5472910000008,
+              "p95": 740.3994579999999,
+              "max": 755.2074160000002
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 369,
+              "p95": 439,
+              "max": 456
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 2,
+              "p95": 3,
+              "max": 5
+            },
+            "backendWriteMs": {
+              "n": 240,
+              "p50": 8.956291999999848,
+              "p95": 10.848500000000058,
+              "max": 14.933708000000479
+            }
+          }
+        ]
+      },
+      "after": {
+        "formatVersion": 1,
+        "synthetic": true,
+        "realModelCalls": 0,
+        "node": "v22.23.2",
+        "runtimeEntrySha256": "f315cc7dcd8375a19f9af724f7b6ad28ce22a35cc20919863de0aabd3ad852c5",
+        "reloadedRecordsVerified": 144,
+        "localRequests": 144,
+        "results": [
+          {
+            "concurrency": 1,
+            "operations": 48,
+            "elapsedMs": 1801.986125,
+            "writes": 192,
+            "operationMs": {
+              "n": 48,
+              "p50": 36.98112500000002,
+              "p95": 45.76862500000004,
+              "max": 45.91574999999989
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 18,
+              "p95": 20,
+              "max": 22
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 4,
+              "max": 9
+            },
+            "backendWriteMs": {
+              "n": 192,
+              "p50": 8.044583000000017,
+              "p95": 10.176249999999982,
+              "max": 11.989417000000003
+            }
+          },
+          {
+            "concurrency": 4,
+            "operations": 48,
+            "elapsedMs": 1856.900209,
+            "writes": 192,
+            "operationMs": {
+              "n": 48,
+              "p50": 141.2612909999998,
+              "p95": 157.55162500000006,
+              "max": 165.72558299999992
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 64,
+              "p95": 82,
+              "max": 86
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 4,
+              "max": 5
+            },
+            "backendWriteMs": {
+              "n": 192,
+              "p50": 9.819750000000113,
+              "p95": 10.994666000000052,
+              "max": 14.123124999999618
+            }
+          },
+          {
+            "concurrency": 16,
+            "operations": 48,
+            "elapsedMs": 1828.734958,
+            "writes": 192,
+            "operationMs": {
+              "n": 48,
+              "p50": 538.8030829999998,
+              "p95": 613.1314580000003,
+              "max": 622.8374999999996
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 234,
+              "p95": 308,
+              "max": 320
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 3,
+              "max": 4
+            },
+            "backendWriteMs": {
+              "n": 192,
+              "p50": 9.074207999999999,
+              "p95": 10.9705840000006,
+              "max": 12.366749999999683
+            }
+          }
+        ]
+      }
+    },
+    {
+      "trial": 2,
+      "before": {
+        "formatVersion": 1,
+        "synthetic": true,
+        "realModelCalls": 0,
+        "node": "v22.23.2",
+        "runtimeEntrySha256": "9f39cd17d4f84688d51d568258ba15b0bf5f3fe72fae3595f28b3c1dc0f60112",
+        "reloadedRecordsVerified": 144,
+        "localRequests": 144,
+        "results": [
+          {
+            "concurrency": 1,
+            "operations": 48,
+            "elapsedMs": 2344.983916,
+            "writes": 240,
+            "operationMs": {
+              "n": 48,
+              "p50": 49.962916999999834,
+              "p95": 54.90204099999983,
+              "max": 59.48225000000002
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 28,
+              "p95": 30,
+              "max": 37
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 5,
+              "max": 9
+            },
+            "backendWriteMs": {
+              "n": 240,
+              "p50": 8.665250000000015,
+              "p95": 10.26233400000001,
+              "max": 14.182999999999993
+            }
+          },
+          {
+            "concurrency": 4,
+            "operations": 48,
+            "elapsedMs": 2252.2039170000003,
+            "writes": 240,
+            "operationMs": {
+              "n": 48,
+              "p50": 173.6119160000003,
+              "p95": 193.42087500000025,
+              "max": 204.55795899999976
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 99,
+              "p95": 118,
+              "max": 126
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 4,
+              "max": 4
+            },
+            "backendWriteMs": {
+              "n": 240,
+              "p50": 9.022416000000703,
+              "p95": 10.936083999999937,
+              "max": 12.038250000000062
+            }
+          },
+          {
+            "concurrency": 16,
+            "operations": 48,
+            "elapsedMs": 2327.7784170000004,
+            "writes": 240,
+            "operationMs": {
+              "n": 48,
+              "p50": 705.1692080000003,
+              "p95": 769.7010829999999,
+              "max": 788.9414580000002
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 400,
+              "p95": 470,
+              "max": 490
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 4,
+              "max": 4
+            },
+            "backendWriteMs": {
+              "n": 240,
+              "p50": 9.884167000000161,
+              "p95": 10.961082999999235,
+              "max": 13.967499999999745
+            }
+          }
+        ]
+      },
+      "after": {
+        "formatVersion": 1,
+        "synthetic": true,
+        "realModelCalls": 0,
+        "node": "v22.23.2",
+        "runtimeEntrySha256": "f315cc7dcd8375a19f9af724f7b6ad28ce22a35cc20919863de0aabd3ad852c5",
+        "reloadedRecordsVerified": 144,
+        "localRequests": 144,
+        "results": [
+          {
+            "concurrency": 1,
+            "operations": 48,
+            "elapsedMs": 1839.040125,
+            "writes": 192,
+            "operationMs": {
+              "n": 48,
+              "p50": 37.82941700000015,
+              "p95": 44.99612500000012,
+              "max": 46.99220799999999
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 17,
+              "p95": 21,
+              "max": 21
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 5,
+              "max": 10
+            },
+            "backendWriteMs": {
+              "n": 192,
+              "p50": 8.567250000000058,
+              "p95": 10.43441699999994,
+              "max": 12.899124999999998
+            }
+          },
+          {
+            "concurrency": 4,
+            "operations": 48,
+            "elapsedMs": 1750.944417,
+            "writes": 192,
+            "operationMs": {
+              "n": 48,
+              "p50": 132.7593750000001,
+              "p95": 155.55020799999966,
+              "max": 157.49066700000003
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 57,
+              "p95": 80,
+              "max": 82
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 2,
+              "p95": 4,
+              "max": 5
+            },
+            "backendWriteMs": {
+              "n": 192,
+              "p50": 8.945958000000246,
+              "p95": 11.864583000000039,
+              "max": 13.140917000000172
+            }
+          },
+          {
+            "concurrency": 16,
+            "operations": 48,
+            "elapsedMs": 1633.7173330000005,
+            "writes": 192,
+            "operationMs": {
+              "n": 48,
+              "p50": 482.80370800000037,
+              "p95": 563.7336249999998,
+              "max": 581.6513750000004
+            },
+            "beforeDispatchMs": {
+              "n": 48,
+              "p50": 207,
+              "p95": 277,
+              "max": 286
+            },
+            "localHttpMs": {
+              "n": 48,
+              "p50": 3,
+              "p95": 3,
+              "max": 4
+            },
+            "backendWriteMs": {
+              "n": 192,
+              "p50": 8.043207999999595,
+              "p95": 10.966541999999663,
+              "max": 18.8917079999992
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
