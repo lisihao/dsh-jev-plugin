@@ -228,7 +228,8 @@
   ],
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.5",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "acorn": "8.15.0"
   },
   "license": "MIT",
   "repository": {

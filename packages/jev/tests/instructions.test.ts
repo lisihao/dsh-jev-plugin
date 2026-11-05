@@ -28,7 +28,7 @@ interface Wire {
   state: {
     instruction: string
     sources: { id: string; text: string; origin: string }[]
-    operation: { name: string; arguments: string; cwd: string; effect: 'read' | 'may-modify' | 'unknown' }
+    operation: { name: string; arguments: string; cwd: string; effect: 'read' | 'may-modify' | 'unknown'; program?: { parsed: boolean; calls: { api: string; effect: string; path?: string }[] } }
   }
   questions: Record<string, object>
 }
@@ -60,6 +60,7 @@ async function fixture(ptc = false, sessionDirectory = '', nativeFs = false,
   let held: Promise<void> | undefined
   let status = 200
   let override: string | undefined
+  let answerFor: ((text: string) => string) | undefined
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = []
     for await (const chunk of request) chunks.push(Buffer.from(chunk))
@@ -72,7 +73,7 @@ async function fixture(ptc = false, sessionDirectory = '', nativeFs = false,
       const text = source?.text ?? ''
       const conflict = effect === 'may-modify' && ((text.includes('Write only in isolated workspace') && !body.state.operation.arguments.includes('plan.md')) || text.includes('Do not edit'))
         || effect === 'read' && (text.includes('Do not read') || text.includes('Do not access'))
-      return [id, { choice: override ?? (id === 'no-requirements' ? 'not-applicable' : conflict ? 'conflict' : 'no-conflict') }]
+      return [id, { choice: override ?? answerFor?.(text) ?? (id === 'no-requirements' ? 'not-applicable' : conflict ? 'conflict' : 'no-conflict') }]
     }))
     response.writeHead(status, { 'content-type': 'application/json' })
     response.end(JSON.stringify({ answers }))
@@ -145,8 +146,8 @@ async function fixture(ptc = false, sessionDirectory = '', nativeFs = false,
   const ask = vi.fn()
   ctx.on('user-questions/request', ask)
   let calls = 0
-  const invoke = (path = 'product.txt', tool = 'write') => ctx.agents.withInitiator(agent, () => ctx.tools.execute({
-    name: ptc ? 'run_code' : tool, arguments: ptc ? { description: 'Write fixture', code: 'await tools.write({file_path:"product.txt",content:"ptc wrote"})' } : tool === 'read' ? { file_path: path } : tool === 'bash' ? { command: 'cat ' + path } : tool === 'constructor' ? {} : { file_path: path, content: 'written' },
+  const invoke = (path = 'product.txt', tool = 'write', code?: string) => ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+    name: ptc ? 'run_code' : tool, arguments: ptc ? { description: 'Write fixture', code: code ?? 'await tools.write({file_path:"product.txt",content:"ptc wrote"})' } : tool === 'read' ? { file_path: path } : tool === 'bash' ? { command: 'cat ' + path } : tool === 'constructor' ? {} : { file_path: path, content: 'written' },
     agent, signal: new AbortController().signal, callId: ToolCallId('instruction-' + ++calls),
   }))
   const step = async (messages: UserMessage[] = [], admit = true) => {
@@ -170,6 +171,7 @@ async function fixture(ptc = false, sessionDirectory = '', nativeFs = false,
     rule: (text: string, path = 'TEAM.md') => writeFile(join(root, path), text),
     hold: () => { held = new Promise<void>(resolve => { release = resolve }); return () => { release?.(); held = undefined } },
     reloadInstructions: async () => { await instructionsFiber.dispose(); instructionsFiber = await ctx.plugin(instructions) },
+    answers: (fn: (text: string) => string) => { answerFor = fn },
     status: (value: number) => { status = value }, answer: (value: string) => { override = value },
     enabled: (value: boolean) => updateVolatile(jev.config.features, createVolatile({ 'instruction-guidance': value })), instructionConfig }
 }
@@ -189,6 +191,64 @@ describe('instruction guidance with original Native/PTC pipeline and localhost J
     expect(await f.step()).toHaveLength(0)
     expect(f.writes()).toBe(1)
     expect(f.ask).not.toHaveBeenCalled()
+  })
+
+  it('expires completed-turn one-shot restrictions while retaining the current task and in-turn amendments', async () => {
+    const f = await fixture(false, '', false, { requestText: 'Only call state_sync scan, then report.' })
+    f.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    f.session.append('turn/start', { turn: 2 })
+    f.session.append('user/message', user('Only call state_sync push, then report.'), { surfaceOp: 'append' })
+    f.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    f.session.append('turn/start', { turn: 3 })
+    f.session.append('user/message', user('Analyze historical sessions and propose memory candidates.'), { surfaceOp: 'append' })
+    f.session.append('user/message', user('Read the input files, but do not edit the source history.'), { surfaceOp: 'append' })
+    await f.rule('Workspace rules remain in force.')
+    expect((await f.invoke()).isError).toBe(false)
+    await f.settled()
+    const originals = f.requests[0]!.state.sources.map(source => source.text)
+    expect(originals).not.toContain('Only call state_sync scan, then report.')
+    expect(originals).not.toContain('Only call state_sync push, then report.')
+    expect(originals).toContain('Analyze historical sessions and propose memory candidates.')
+    expect(originals).toContain('Read the input files, but do not edit the source history.')
+    expect(originals).toContain('Workspace rules remain in force.')
+  })
+
+  it('sends parsed requested filesystem call facts for run_code without declaring the entire program read-only', async () => {
+    const f = await fixture(true)
+    const code = `const fs = await import('node:fs'); const p = '/tmp/input.txt'; console.log(fs.readFileSync(p, 'utf8'));`
+    expect((await f.invoke('product.txt', 'write', code)).isError).toBe(false)
+    await f.settled(2)
+    const op = f.requests.find(request => request.state.operation.name === 'run_code')!.state.operation
+    expect(op.effect).toBe('unknown')
+    expect(op.program?.parsed).toBe(true)
+    expect(op.program?.calls).toContainEqual({ api: 'node:fs.readFileSync', effect: 'read', path: '/tmp/input.txt' })
+    expect(f.requests[0]!.state.instruction).toContain('Evaluate each source independently')
+    expect(f.requests[0]!.state.instruction).toContain('not execution or proof that the whole program is read-only')
+  })
+
+  it('adopts a known conflict even when a separate source remains undetermined', async () => {
+    const f = await fixture()
+    await f.rule('Do not edit the protected input.')
+    f.answers(text => text.includes('Do not edit') ? 'conflict' : 'undetermined')
+    expect((await f.invoke()).isError).toBe(false)
+    await f.settled()
+    expect(await f.step()).toHaveLength(1)
+    const record = await f.ctx.jev.getRecord((await f.ctx.jev.listRecords({})).items[0]!.id)
+    expect(record?.status).toBe('succeeded')
+    expect(record?.attemptRecords[0]?.response?.answers.some(answer => answer.kind === 'choice' && answer.optionId === 'undetermined')).toBe(true)
+    await vi.waitFor(async () => expect((await f.ctx.jev.getRecord(record!.id))?.receipts).toEqual([expect.objectContaining({ id: 'instruction-guidance-delivered', status: 'executed' })]))
+  })
+
+  it('records partial no-conflict evidence without claiming unresolved sources are compliant', async () => {
+    const f = await fixture()
+    await f.rule('The known operation is allowed here.')
+    f.answers(text => text.includes('known operation') ? 'no-conflict' : 'undetermined')
+    expect((await f.invoke()).isError).toBe(false)
+    await f.settled()
+    expect(await f.step()).toHaveLength(0)
+    const record = await f.ctx.jev.getRecord((await f.ctx.jev.listRecords({})).items[0]!.id)
+    expect(record?.status).toBe('succeeded')
+    await vi.waitFor(async () => expect((await f.ctx.jev.getRecord(record!.id))?.receipts).toEqual([expect.objectContaining({ status: 'observed', reason: expect.stringContaining('1 sources remain undetermined') })]))
   })
 
   it('marks native reads as read-only without suppressing an explicit read ban', async () => {
