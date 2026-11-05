@@ -472,11 +472,12 @@ describe('saved Luna channels, complete attempts and original-response history',
     const entered = deferred<void>()
     const gate = deferred<void>()
     const controller = new AbortController()
-    const original = JevLedger.prototype.saveNetwork
+    const original = JevLedger.prototype.startAttempt
     let calls = 0
-    const writing = vi.spyOn(JevLedger.prototype, 'saveNetwork').mockImplementation(async function (operationId, attemptId, records) {
-      await original.call(this, operationId, attemptId, records)
+    const writing = vi.spyOn(JevLedger.prototype, 'startAttempt').mockImplementation(async function (operationId, request, connection) {
+      const attempt = await original.call(this, operationId, request, connection)
       if (++calls === 1) { entered.resolve(); await gate.promise }
+      return attempt
     })
     try {
       const pending = ctx.jev.judgeOnce({ featureId: 'fixture', link: {}, refresh: () => request, signal: controller.signal })
@@ -487,7 +488,7 @@ describe('saved Luna channels, complete attempts and original-response history',
       expect(result.kind).toBe('cancelled')
       expect(http.received).toHaveLength(0)
       const exchange = (await ctx.jev.getRecord(result.operationId!))?.attemptRecords[0]?.networkRecords?.[0]
-      expect(exchange).toMatchObject({ status: 'failed', failure: { code: 'ABORTED' } })
+      expect(exchange).toMatchObject({ status: 'failed', failure: { code: 'CANCELLED' } })
       expect(exchange?.settledAt).toEqual(expect.any(String))
       expect(exchange?.dispatchedAt).toBeUndefined()
       expect(exchange?.httpStatus).toBeUndefined()

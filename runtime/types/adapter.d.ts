@@ -7,7 +7,7 @@ export interface JevConnection extends JevConnectionIdentity {
 /** The adapter never advertises a chat model and rejects calls lacking a service-issued nonce. */
 export declare class JevAdapter extends LlmAdapter {
     private readonly pending;
-    issue(request: JevRequest, connection: JevConnection, canStart?: () => boolean, record?: (records: readonly JevNetworkRecord[]) => Promise<void>): {
+    issue(request: JevRequest, connection: JevConnection, canStart?: () => boolean, record?: (records: readonly JevNetworkRecord[]) => Promise<void>, prepared?: JevNetworkRecord): {
         envelope: string;
         records: readonly JevNetworkRecord[];
         release: () => void;
