@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
 import { validateRequest } from "./wire.js";
-import { aggregateUsage, parseProtocolResponse, replayNetworkResponses } from "./wire.js";
+import { aggregateUsage, parseProtocolResponse, protocolBody, replayNetworkResponses } from "./wire.js";
 const STATUS = new Set(['pending', 'waiting', 'succeeded', 'failed', 'cancelled', 'interrupted']);
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -203,8 +203,16 @@ export class JevLedger {
     }
     get(id) { return this.domain.table('operations').get(id) ?? null; }
     async startAttempt(operationId, request, connection) {
+        const startedAt = new Date().toISOString();
+        const connectionId = connection.connectionId ?? 'jev';
+        const part = { ...request, questions: request.questions.slice(0, connectionId === 'luna-openrouter' ? 200 : request.questions.length) };
+        const firstPacket = {
+            id: randomUUID(), questionIds: part.questions.map(question => question.id),
+            requestBody: protocolBody(connectionId, connection.model, part), startedAt, status: 'pending',
+        };
+        // One durable barrier covers both the business input and the exact first HTTP body.
         const attempt = {
-            id: randomUUID(), request, connection, status: 'pending', startedAt: new Date().toISOString(),
+            id: randomUUID(), request, connection, status: 'pending', startedAt, networkRecords: [firstPacket],
         };
         await this.domain.table('operations').update(operationId, current => ({
             ...current, status: 'pending', updatedAt: attempt.startedAt,
@@ -215,8 +223,10 @@ export class JevLedger {
     }
     /** Persist each network input before dispatch and each response before the next batch. */
     async saveNetwork(operationId, attemptId, networkRecords) {
+        // Adapter progress is mutable; capture it before joining the domain write queue.
+        const snapshot = structuredClone(networkRecords);
         await this.domain.table('operations').update(operationId, current => ({ ...current,
-            attemptRecords: current.attemptRecords.map(attempt => attempt.id === attemptId ? { ...attempt, networkRecords } : attempt),
+            attemptRecords: current.attemptRecords.map(attempt => attempt.id === attemptId ? { ...attempt, networkRecords: snapshot } : attempt),
         }));
     }
     async settleAttempt(operationId, attemptId, patch) {

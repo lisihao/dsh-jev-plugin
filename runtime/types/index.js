@@ -478,7 +478,7 @@ let JevService = (() => {
             }).catch(() => { throw new JevError('LOG_WRITE_FAILED', 'Jev input could not be saved; no request was sent'); });
             let rawResponse;
             let response;
-            let networkRecords = [];
+            let networkRecords = attempt.networkRecords ?? [];
             let usage;
             let usageComplete = false;
             const timeout = AbortSignal.timeout(identity.timeoutMs);
@@ -492,7 +492,7 @@ let JevService = (() => {
                 if (key === undefined)
                     throw new JevError('CREDENTIAL_MISSING', 'Jev credential is not configured');
                 const connection = { ...identity, apiKey: key.value };
-                const issued = this.adapter.issue(snapshot, connection, featureId === undefined ? undefined : () => this.isEnabled(featureId), records => this.records().saveNetwork(operationId, attempt.id, records));
+                const issued = this.adapter.issue(snapshot, connection, featureId === undefined ? undefined : () => this.isEnabled(featureId), records => this.records().saveNetwork(operationId, attempt.id, records), attempt.networkRecords?.[0]);
                 networkRecords = issued.records;
                 try {
                     let text;
@@ -551,6 +551,8 @@ let JevService = (() => {
                     throw error;
                 const failure = outerSignal?.aborted ? { code: 'CANCELLED', message: 'Jev operation was cancelled' }
                     : timeout.aborted ? { code: 'TIMEOUT', message: 'Jev request timed out' } : safeFailure(error);
+                networkRecords = networkRecords.map(record => record.dispatchedAt === undefined && record.status === 'pending'
+                    ? { ...record, status: 'failed', settledAt: new Date().toISOString(), failure } : record);
                 rawResponse = networkRecords.length === 1 ? networkRecords[0]?.rawResponse : undefined;
                 const expectedPackets = identity.connectionId === 'luna-openrouter' ? Math.ceil(snapshot.questions.length / 200) : 1;
                 const receivedAll = networkRecords.length === expectedPackets
